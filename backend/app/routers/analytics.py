@@ -15,6 +15,11 @@ from app.database import get_session
 router = APIRouter()
 
 
+def _get_lab_title_pattern(lab: str) -> str:
+    """Convert lab-01 to Lab 01 pattern for title matching."""
+    return f"%{lab.replace('lab-', 'Lab ')}%"
+
+
 @router.get("/scores")
 async def get_scores(
     lab: str = Query(..., description="Lab identifier, e.g. 'lab-01'"),
@@ -32,11 +37,6 @@ async def get_scores(
       [{"bucket": "0-25", "count": 12}, {"bucket": "26-50", "count": 8}, ...]
     - Always return all four buckets, even if count is 0
     """
-    from sqlalchemy import text
-    
-    # Convert lab-01 to "Lab 01" pattern for title matching
-    lab_num = lab.replace("lab-", "Lab ")
-    
     query = text("""
         WITH lab_item AS (
             SELECT id FROM item 
@@ -48,27 +48,39 @@ async def get_scores(
             UNION
             SELECT id FROM lab_item
         ),
-        score_buckets AS (
+        score_counts AS (
             SELECT 
                 CASE 
                     WHEN score >= 0 AND score <= 25 THEN '0-25'
                     WHEN score >= 26 AND score <= 50 THEN '26-50'
                     WHEN score >= 51 AND score <= 75 THEN '51-75'
                     WHEN score >= 76 AND score <= 100 THEN '76-100'
-                    ELSE NULL
-                END as bucket
+                END as bucket,
+                COUNT(*) as count
             FROM interacts
             WHERE item_id IN (SELECT id FROM task_items)
             AND score IS NOT NULL
+            GROUP BY 
+                CASE 
+                    WHEN score >= 0 AND score <= 25 THEN '0-25'
+                    WHEN score >= 26 AND score <= 50 THEN '26-50'
+                    WHEN score >= 51 AND score <= 75 THEN '51-75'
+                    WHEN score >= 76 AND score <= 100 THEN '76-100'
+                END
+        ),
+        all_buckets AS (
+            SELECT '0-25' as bucket UNION ALL
+            SELECT '26-50' UNION ALL
+            SELECT '51-75' UNION ALL
+            SELECT '76-100'
         )
-        SELECT b.bucket, COALESCE(COUNT(sb.bucket), 0) as count
-        FROM (VALUES ('0-25'), ('26-50'), ('51-75'), ('76-100')) AS b(bucket)
-        LEFT JOIN score_buckets sb ON b.bucket = sb.bucket
-        GROUP BY b.bucket
-        ORDER BY b.bucket
+        SELECT ab.bucket, COALESCE(sc.count, 0) as count
+        FROM all_buckets ab
+        LEFT JOIN score_counts sc ON ab.bucket = sc.bucket
+        ORDER BY ab.bucket
     """)
     
-    result = await session.exec(query.bindparams(lab_title_pattern=f"%{lab_num}%"))
+    result = await session.exec(query.bindparams(lab_title_pattern=_get_lab_title_pattern(lab)))
     rows = result.all()
     
     return [{"bucket": row[0], "count": int(row[1])} for row in rows]
@@ -90,10 +102,6 @@ async def get_pass_rates(
       [{"task": "Repository Setup", "avg_score": 92.3, "attempts": 150}, ...]
     - Order by task title
     """
-    from sqlalchemy import text
-    
-    lab_num = lab.replace("lab-", "Lab ")
-    
     query = text("""
         WITH lab_item AS (
             SELECT id FROM item 
@@ -105,7 +113,7 @@ async def get_pass_rates(
         )
         SELECT 
             t.title as task,
-            ROUND(AVG(i.score)::numeric, 1) as avg_score,
+            ROUND(AVG(i.score), 1) as avg_score,
             COUNT(i.id) as attempts
         FROM task_items t
         LEFT JOIN interacts i ON t.id = i.item_id
@@ -113,7 +121,7 @@ async def get_pass_rates(
         ORDER BY t.title
     """)
     
-    result = await session.exec(query.bindparams(lab_title_pattern=f"%{lab_num}%"))
+    result = await session.exec(query.bindparams(lab_title_pattern=_get_lab_title_pattern(lab)))
     rows = result.all()
     
     return [
@@ -141,10 +149,6 @@ async def get_timeline(
       [{"date": "2026-02-28", "submissions": 45}, ...]
     - Order by date ascending
     """
-    from sqlalchemy import text
-    
-    lab_num = lab.replace("lab-", "Lab ")
-    
     query = text("""
         WITH lab_item AS (
             SELECT id FROM item 
@@ -165,7 +169,7 @@ async def get_timeline(
         ORDER BY date ASC
     """)
     
-    result = await session.exec(query.bindparams(lab_title_pattern=f"%{lab_num}%"))
+    result = await session.exec(query.bindparams(lab_title_pattern=_get_lab_title_pattern(lab)))
     rows = result.all()
     
     return [
@@ -191,10 +195,6 @@ async def get_groups(
       [{"group": "B23-CS-01", "avg_score": 78.5, "students": 25}, ...]
     - Order by group name
     """
-    from sqlalchemy import text
-    
-    lab_num = lab.replace("lab-", "Lab ")
-    
     query = text("""
         WITH lab_item AS (
             SELECT id FROM item 
@@ -208,7 +208,7 @@ async def get_groups(
         )
         SELECT 
             l.student_group as "group",
-            ROUND(AVG(i.score)::numeric, 1) as avg_score,
+            ROUND(AVG(i.score), 1) as avg_score,
             COUNT(DISTINCT l.id) as students
         FROM interacts i
         JOIN learner l ON i.learner_id = l.id
@@ -217,7 +217,7 @@ async def get_groups(
         ORDER BY l.student_group
     """)
     
-    result = await session.exec(query.bindparams(lab_title_pattern=f"%{lab_num}%"))
+    result = await session.exec(query.bindparams(lab_title_pattern=_get_lab_title_pattern(lab)))
     rows = result.all()
     
     return [
