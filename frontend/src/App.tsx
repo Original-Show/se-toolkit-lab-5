@@ -1,5 +1,6 @@
 import { useState, useEffect, useReducer, FormEvent } from 'react'
 import './App.css'
+import Dashboard from './Dashboard'
 
 const STORAGE_KEY = 'api_key'
 
@@ -32,12 +33,15 @@ function fetchReducer(_state: FetchState, action: FetchAction): FetchState {
   }
 }
 
+type Page = 'items' | 'dashboard'
+
 function App() {
   const [token, setToken] = useState(
-    () => localStorage.getItem(STORAGE_KEY) ?? '',
+    () => localStorage.getItem(STORAGE_KEY) ?? ''
   )
   const [draft, setDraft] = useState('')
   const [fetchState, dispatch] = useReducer(fetchReducer, { status: 'idle' })
+  const [currentPage, setCurrentPage] = useState<Page>('items')
 
   useEffect(() => {
     if (!token) return
@@ -53,7 +57,7 @@ function App() {
       })
       .then((data: Item[]) => dispatch({ type: 'fetch_success', data }))
       .catch((err: Error) =>
-        dispatch({ type: 'fetch_error', message: err.message }),
+        dispatch({ type: 'fetch_error', message: err.message })
       )
   }, [token])
 
@@ -69,6 +73,7 @@ function App() {
     localStorage.removeItem(STORAGE_KEY)
     setToken('')
     setDraft('')
+    setCurrentPage('items')
   }
 
   if (!token) {
@@ -90,12 +95,42 @@ function App() {
   return (
     <div>
       <header className="app-header">
-        <h1>Items</h1>
+        <h1>Learning Management System</h1>
+        <nav className="app-nav">
+          <button
+            className={currentPage === 'items' ? 'active' : ''}
+            onClick={() => setCurrentPage('items')}
+          >
+            Items
+          </button>
+          <button
+            className={currentPage === 'dashboard' ? 'active' : ''}
+            onClick={() => setCurrentPage('dashboard')}
+          >
+            Dashboard
+          </button>
+        </nav>
         <button className="btn-disconnect" onClick={handleDisconnect}>
           Disconnect
         </button>
       </header>
 
+      {currentPage === 'dashboard' ? (
+        <Dashboard token={token} />
+      ) : (
+        <ItemsPage fetchState={fetchState} />
+      )}
+    </div>
+  )
+}
+
+interface ItemsPageProps {
+  fetchState: FetchState
+}
+
+function ItemsPage({ fetchState }: ItemsPageProps) {
+  return (
+    <>
       {fetchState.status === 'loading' && <p>Loading...</p>}
       {fetchState.status === 'error' && <p>Error: {fetchState.message}</p>}
 
@@ -104,7 +139,7 @@ function App() {
           <thead>
             <tr>
               <th>ID</th>
-              <th>ItemType</th>
+              <th>Type</th>
               <th>Title</th>
               <th>Created at</th>
             </tr>
@@ -121,7 +156,7 @@ function App() {
           </tbody>
         </table>
       )}
-    </div>
+    </>
   )
 }
 
